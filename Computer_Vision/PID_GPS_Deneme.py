@@ -1,6 +1,7 @@
 # import the necessary packages
 from picamera.array import PiRGBArray
 from picamera import PiCamera
+from datetime import datetime
 import time
 import cv2
 import numpy as np
@@ -18,12 +19,15 @@ waypoints = {
 }
 """
 
-#Servo-------------------------------
+
+# Servo-------------------------------
 def get_pwm(angle):
     return (angle / 18) + 2.5
 
-def servo_go(servo , angle):
+
+def servo_go(servo, angle):
     servo.ChangeDutyCycle(get_pwm(angle))
+
 
 GPIO.setwarnings(False)
 
@@ -31,16 +35,38 @@ servoPIN = 17
 GPIO.setmode(GPIO.BCM)
 GPIO.setup(servoPIN, GPIO.OUT)
 
-p = GPIO.PWM(servoPIN, 50) #GPIO 17 pini 50Hz ile pwm olarak ayarlandı
-p.start(2.5) # Initialization 20ms
-#-------------------------------------
+p = GPIO.PWM(servoPIN, 50)  # GPIO 17 pini 50Hz ile pwm olarak ayarlandı
+p.start(2.5)  # Initialization 20ms
+# -------------------------------------
 
-#-------Mission--------------------------
-Land_Target = True # Araç Land mi atsın 
-frame_counter = 0 # Frame sayacı
-#----------------------------------------
+# -------Mission--------------------------
+Land_Target = True  # Araç Land mi atsın
+frame_counter = 0  # Frame sayacı
+# ----------------------------------------
 
 
+#----------Video Save---------------------------------------------
+local_dt = datetime.now()
+video_name = str(datetime.now()) + ".avi"
+
+#--------Video Writer-----------------
+fourcc = cv2.VideoWriter_fourcc(*'XVID')
+out = cv2.VideoWriter(video_name,fourcc, 20.0, (640,480))
+#------------------------------------
+#---------------------------------------------------------------
+
+
+
+# ---------GÖRÜNTÜ İŞLEME DEĞİŞKENLERİ---------------
+target = False  # Eğer ekranda herhangi bir kırmızı hedef saptıyorsa bu değişken true olur. ekranda hiç kırmızı görmüyor ise False olur.
+ptin_contour = False  # Eğer kameramızın merkezi kırmızı hedefin sınırları içinde ise bu değişken True olur, aksi halde False değerini alır
+
+land_sensivity = 50  # pixel kamera merkezinin kırmızı hedefin merkezine uzaklığı 50 pixelden az ise iniş yapar
+frame_counter = 0  # frame sayacı
+contour_area = 0  # Bulunan kırmızı contour'un alanı ( pixel )
+cX = 0
+cY = 0  # Bulunan kırmızı hedefin merkez noktasının x ve ykoordinatları (Tüm kodda kullanıldığı için global değişken olarak tanımlanmıştır)
+showCircleArea = True  # True olur ise ekranda kırmızı hedefin alanını gösterir
 
 #---------GÖRÜNTÜ İŞLEME DEĞİŞKENLERİ---------------
 target = False # Eğer ekranda herhangi bir kırmızı hedef saptıyorsa bu değişken true olur. ekranda hiç kırmızı görmüyor ise False olur.
@@ -53,26 +79,29 @@ cX = 0
 cY = 0 # Bulunan kırmızı hedefin merkez noktasının x ve ykoordinatları (Tüm kodda kullanıldığı için global değişken olarak tanımlanmıştır)
 showCircleArea = True # True olur ise ekranda kırmızı hedefin alanını gösterir
 
+
 ShowMessageifinTarget = True  # içinde olup olmadığı (mesajın bir kere yazması için anahtar) (logging)
 ShowMessageifSeeTarget = True  # daireyi görüp görmediği (mesajın bir kere yazması için anahtar) (logging)
-circle_color = (0, 255, 0) # (görsellik) 
-contour_color = (0, 255, 0) # (görsellik)
-pool_font_color = (255, 255, 0) # (görsellik)
-Show_Velocities_onScreen = True #Tru ise ekranda PID ile hesaplanan hızları gösterir
-Aim_Length = 40 #(Görsel) merkez noktasındaki artının uzunluğu
+circle_color = (0, 255, 0)  # (görsellik)
+contour_color = (0, 255, 0)  # (görsellik)
+pool_font_color = (255, 255, 0)  # (görsellik)
+Show_Velocities_onScreen = False  # Tru ise ekranda PID ile hesaplanan hızları gösterir
+Aim_Length = 40  # (Görsel) merkez noktasındaki artının uzunluğu
 
-#Kullanılmayan Circle bulma yöntemi için olan değişkenler--------
+# Kullanılmayan Circle bulma yöntemi için olan değişkenler--------
 
-Use_Circle_Check = False # Bu değişken True olursa HoughCircle ile daire arar (performans kaybı çok olacağından bunu kullanmıyoruz. False olarak tutun)
-upt = False #Hough circle (daire bulma yöntemi için) (Şuan kullanılmıyor)
-total_Mean_Check = False # HoughCircle da kullanulan bir değişken
-hsv_Mean_limit = 60 # Hough circle
+Use_Circle_Check = False  # Bu değişken True olursa HoughCircle ile daire arar (performans kaybı çok olacağından bunu kullanmıyoruz. False olarak tutun)
+upt = False  # Hough circle (daire bulma yöntemi için) (Şuan kullanılmıyor)
+total_Mean_Check = False  # HoughCircle da kullanulan bir değişken
+hsv_Mean_limit = 60  # Hough circle
 
+# -----------------------------------------------------
+firstMessage = True  # İlk frame alınınca 1 kere yazdırmak için
 #-----------------------------------------------------
 firstMessage = True # İlk frame alınınca 1 kere yazdırmak için 
 
 # --------- PID ---------------------------
-Kp = 0.0022
+Kp = 0.0044
 Ki = 0
 Kd = 0.022
 LastErrorX = 0
@@ -81,19 +110,19 @@ integralX = 0
 integralY = 0
 derivativeX = 0
 derivativeY = 0
-PID_Velocity_X = 0
+PID_Velocity_X = 1
 PID_Velocity_Y = 0
 
 max_Vel = 1.5
 
 land_sensivity = 50  # pixel
 
-#---------------------Dronekit----------------------------------------------
+# ---------------------Dronekit----------------------------------------------
 connection_address = '/dev/ttyACM0'  # kontrol et
 baud_rate = 115200
 take_off_altitude = 5  # in meter
-ground_speed = 3  # m/s
-air_speed = 3  # m/s
+ground_speed = 5  # m/s
+air_speed = 5  # m/s
 land_speed = 60  # cm/s
 rtl_altitude = 5  # in meter
 
@@ -106,40 +135,40 @@ Velx_d = Velocity_x
 Vely_d = Velocity_y
 Velz_d = Velocity_z
 
-alt_sensivity = 0.3 
-alt_speed = 0.3 # Alçalıp yükselme hızı
-TargetCompleted = False # Hedefin GPS konumu alındı ise
-ortalandi = False # Hedefe gidip 2m'ye alçaldı ise
+alt_sensivity = 0.3
+alt_speed = 0.3  # Alçalıp yükselme hızı
+TargetCompleted = False  # Hedefin GPS konumu alındı ise
+ortalandi = False  # Hedefe gidip 2m'ye alçaldı ise
 Target_Location = (0.00, 0.00, 0)
-
 
 # Connect to the vehicle on given address
 print("\nConnecting to vehicle on: " + connection_address + " with baud rate: " + str(baud_rate))
 vehicle = connect(connection_address, wait_ready=True, baud=baud_rate)
 waypoint_home = vehicle.location.global_frame
 
-#---------------------------------------Dronekit Functions--------------------------
-#---Print Parameters of Connected Vehicle
+
+# ---------------------------------------Dronekit Functions--------------------------
+# ---Print Parameters of Connected Vehicle
 def print_vehicle_parameters():
     # Get all vehicle attributes (state)
-    print ("\nGet all vehicle attribute values:")
-    print (" Global Location: %s" % vehicle.location.global_frame)
-    print (" Global Location (relative altitude): %s" % vehicle.location.global_relative_frame)
-    print (" Local Location: %s" % vehicle.location.local_frame)
-    print (" Attitude: %s" % vehicle.attitude)
-    print (" Velocity: %s" % vehicle.velocity)
-    print (" GPS: %s" % vehicle.gps_0)
-    print (" EKF OK?: %s" % vehicle.ekf_ok)
-    print (" Last Heartbeat: %s" % vehicle.last_heartbeat)
-    print (" Rangefinder: %s" % vehicle.rangefinder)
-    print (" Rangefinder distance: %s" % vehicle.rangefinder.distance)
-    print (" Heading: %s" % vehicle.heading)
-    print (" Is Armable?: %s" % vehicle.is_armable)
-    print (" System status: %s" % vehicle.system_status.state)
-    print (" Groundspeed: %s" % vehicle.groundspeed)
-    print (" Airspeed: %s" % vehicle.airspeed)
-    print (" Mode: %s" % vehicle.mode.name)
-    print (" Armed: %s" % vehicle.armed)
+    print("\nGet all vehicle attribute values:")
+    print(" Global Location: %s" % vehicle.location.global_frame)
+    print(" Global Location (relative altitude): %s" % vehicle.location.global_relative_frame)
+    print(" Local Location: %s" % vehicle.location.local_frame)
+    print(" Attitude: %s" % vehicle.attitude)
+    print(" Velocity: %s" % vehicle.velocity)
+    print(" GPS: %s" % vehicle.gps_0)
+    print(" EKF OK?: %s" % vehicle.ekf_ok)
+    print(" Last Heartbeat: %s" % vehicle.last_heartbeat)
+    print(" Rangefinder: %s" % vehicle.rangefinder)
+    print(" Rangefinder distance: %s" % vehicle.rangefinder.distance)
+    print(" Heading: %s" % vehicle.heading)
+    print(" Is Armable?: %s" % vehicle.is_armable)
+    print(" System status: %s" % vehicle.system_status.state)
+    print(" Groundspeed: %s" % vehicle.groundspeed)
+    print(" Airspeed: %s" % vehicle.airspeed)
+    print(" Mode: %s" % vehicle.mode.name)
+    print(" Armed: %s" % vehicle.armed)
 
 
 # -- Define arm and takeoff
@@ -215,7 +244,8 @@ def yukseklik_ayarla(vehicle, yukseklik, hiz, Vx, Vy):
     print("Target altitude reached")
     set_velocity_body(vehicle, 0, 0, 0)
 
-#---- Get Distance in Meters
+
+# ---- Get Distance in Meters
 def get_distance_metres(aLocation1, aLocation2):
     """
     Returns the ground distance in metres between two LocationGlobal objects.
@@ -226,10 +256,14 @@ def get_distance_metres(aLocation1, aLocation2):
     dlat = aLocation2.lat - aLocation1.lat
     dlong = aLocation2.lon - aLocation1.lon
     return math.sqrt((dlat * dlat) + (dlong * dlong)) * 1.113195e5
-#---- Distance Between The Vehicle and Given Waypoint
+
+
+# ---- Distance Between The Vehicle and Given Waypoint
 def waypoint_distance(waypoint):
     distance = get_distance_metres(vehicle.location.global_frame, waypoint)
     return distance
+
+
 def get_location_metres(original_location, dNorth, dEast):
     """
     Returns a Location object containing the latitude/longitude `dNorth` and `dEast` metres from the
@@ -241,21 +275,20 @@ def get_location_metres(original_location, dNorth, dEast):
     For more information see:
     http://gis.stackexchange.com/questions/2951/algorithm-for-offsetting-a-latitude-longitude-by-some-amount-of-meters
     """
-    earth_radius=6378137.0 #Radius of "spherical" earth
-    #Coordinate offsets in radians
-    dLat = dNorth/earth_radius
-    dLon = dEast/(earth_radius*math.cos(math.pi*original_location.lat/180))
-    print ("dlat, dlon", dLat, dLon)
-    #New position in decimal degrees
-    newlat = original_location.lat + (dLat * 180/math.pi)
-    newlon = original_location.lon + (dLon * 180/math.pi)
-    return(newlat, newlon)
+    earth_radius = 6378137.0  # Radius of "spherical" earth
+    # Coordinate offsets in radians
+    dLat = dNorth / earth_radius
+    dLon = dEast / (earth_radius * math.cos(math.pi * original_location.lat / 180))
+    print("dlat, dlon", dLat, dLon)
+    # New position in decimal degrees
+    newlat = original_location.lat + (dLat * 180 / math.pi)
+    newlon = original_location.lon + (dLon * 180 / math.pi)
+    return (newlat, newlon)
 
 
+# ------------------------------- Opencv Functions-------------------------
 
-#------------------------------- Opencv Functions-------------------------
-
-def findRedContours(image,contours,img_Center_X,img_Center_Y):
+def findRedContours(image, contours, img_Center_X, img_Center_Y):
     global target
     global contour_area  # alanı global değişken olarak tanımladım
     global cX
@@ -301,7 +334,8 @@ def findRedContours(image,contours,img_Center_X,img_Center_Y):
             target = False
             ptin_contour = False
 
-def Mark_GPS_of_Target(camera,vehicle,waypoint):
+
+def Mark_GPS_of_Target(camera, vehicle, waypoint):
     global Use_Circle_Check
     global Target_Location
     global Kp
@@ -329,8 +363,10 @@ def Mark_GPS_of_Target(camera,vehicle,waypoint):
     global alt_speed
     global TargetCompleted
     global firstMessage
+    global Show_Velocities_onScreen
     global frame_counter
     global upt
+    global out
 
     for frame in camera.capture_continuous(rawCapture, format="bgr", use_video_port=True):
         # grab the raw NumPy array representing the image, then initialize the timestamp
@@ -358,10 +394,9 @@ def Mark_GPS_of_Target(camera,vehicle,waypoint):
         lower_red = np.array([150, 50, 50])
         upper_red = np.array([200, 255, 255])
 
-        #Gece ucusu - spot isigi altinda kirmizi daire(sahanin kirmizisini algilamayan)
-        #lower_red = np.array([0, 50, 117])
-        #upper_red = np.array([179, 160, 255])
-    
+        # Gece ucusu - spot isigi altinda kirmizi daire(sahanin kirmizisini algilamayan)
+        # lower_red = np.array([0, 50, 117])
+        # upper_red = np.array([179, 160, 255])
 
         # for test - (karton için)
         # lower_red = np.array([0, 101, 0])
@@ -430,15 +465,15 @@ def Mark_GPS_of_Target(camera,vehicle,waypoint):
                 else:
                     target = False
                     upt = False
-                    findRedContours(image,contours,img_Center_X,img_Center_Y)
+                    findRedContours(image, contours, img_Center_X, img_Center_Y)
 
             else:
-                findRedContours(image,contours,img_Center_X,img_Center_Y)
+                findRedContours(image, contours, img_Center_X, img_Center_Y)
                 total_Mean_Check = False
 
 
         else:
-            findRedContours(image,contours,img_Center_X,img_Center_Y)
+            findRedContours(image, contours, img_Center_X, img_Center_Y)
             v_alt = vehicle.location.global_relative_frame.alt
             if target:
                 # if ShowMessageifseeTarget:
@@ -449,10 +484,15 @@ def Mark_GPS_of_Target(camera,vehicle,waypoint):
                         print("Daire'nin ICINDE")
                         ShowMessageifinTarget = False
                         Target_Location = vehicle.location.global_relative_frame
-                        print("Location Found Global Location : %s" %vehicle.location.global_relative_frame)
+                        print("Location Found Global Location : %s" % vehicle.location.global_relative_frame)
                         TargetCompleted = True
                         rawCapture.truncate(0)
                         break
+        #-------------Altitude Yazdir------------
+        alt_str = "Alt : " + str(vehicle.location.global_relative_frame.alt)
+        cv2.putText(image, alt_str, (470,50), cv2.FONT_HERSHEY_SIMPLEX, 1, (255,0,0), 2,cv2.LINE_AA)
+        #---------------------------------------
+        out.write(image)
         rawCapture.truncate(0)
         if waypoint_distance(waypoint) <= 1:
             print("Target Reached")
@@ -460,7 +500,7 @@ def Mark_GPS_of_Target(camera,vehicle,waypoint):
             break
 
 
-def FindTarget_WaterDropPool(camera,vehicle,waypoint,waypointBool):
+def FindTarget_WaterDropPool(camera, vehicle, waypoint, waypointBool):
     global Kp
     global Ki
     global Kd
@@ -493,6 +533,7 @@ def FindTarget_WaterDropPool(camera,vehicle,waypoint,waypointBool):
     global Land_Target
     global upt
     global showCircleArea
+    global out
     PID_Velocity_X = 0
     PID_Velocity_Y = 0
     Velocity_z = 0
@@ -526,10 +567,9 @@ def FindTarget_WaterDropPool(camera,vehicle,waypoint,waypointBool):
         lower_red = np.array([150, 50, 50])
         upper_red = np.array([200, 255, 255])
 
-        #Gece ucusu - spot isigi altinda kirmizi daire(sahanin kirmizisini algilamayan)
-        #lower_red = np.array([0, 50, 117])
-        #upper_red = np.array([179, 160, 255])
-    
+        # Gece ucusu - spot isigi altinda kirmizi daire(sahanin kirmizisini algilamayan)
+        # lower_red = np.array([0, 50, 117])
+        # upper_red = np.array([179, 160, 255])
 
         # for test - (karton için)
         # lower_red = np.array([0, 101, 0])
@@ -598,15 +638,15 @@ def FindTarget_WaterDropPool(camera,vehicle,waypoint,waypointBool):
                 else:
                     target = False
                     upt = False
-                    findRedContours(image,contours,img_Center_X,img_Center_Y)
+                    findRedContours(image, contours, img_Center_X, img_Center_Y)
 
             else:
-                findRedContours(image,contours,img_Center_X,img_Center_Y)
+                findRedContours(image, contours, img_Center_X, img_Center_Y)
                 total_Mean_Check = False
 
 
         else:
-            findRedContours(image,contours,img_Center_X,img_Center_Y)
+            findRedContours(image, contours, img_Center_X, img_Center_Y)
             v_alt = vehicle.location.global_relative_frame.alt
             if target:
                 errorX = cX - 320
@@ -689,15 +729,16 @@ def FindTarget_WaterDropPool(camera,vehicle,waypoint,waypointBool):
                 print("Daire tespit EDILEMEDI")
                 # ShowMessageifseeTarget = True
                 # araç 2m'ye inmiş ve daireyi görmüyorsa
-                #-----------------------------Yükselme Eklenecek----------------------------------------
+                # -----------------------------Yükselme Eklenecek----------------------------------------
                 if TargetCompleted:
                     print("GPS koordinati bulundu gittim ama daire evde yoktu Land atiyorum abi...")
-                    vehicle.mode = VehicleMode("LAND")#Hiç daire görmüyorsa land atsın
-                #---------------------------------------------------------------------------------------
+                    vehicle.mode = VehicleMode("LAND")  # Hiç daire görmüyorsa land atsın
+                # ---------------------------------------------------------------------------------------
                 if v_alt <= 2 and not ptin_contour:
                     Velocity_z = 0
                     print("Arac 2m'ye indi zorunlu LAND atiyor...")
                     vehicle.mode = VehicleMode("LAND")
+                    break
             # Herhangi bir hız değeri değişti ise
             if PID_Velocity_X != Velx_d or PID_Velocity_Y != Vely_d or Velocity_z != Velz_d:
                 print("X hizi : %f - Y hizi : %f - Z hizi %f" % (PID_Velocity_X, PID_Velocity_Y, Velocity_z))
@@ -774,6 +815,11 @@ def FindTarget_WaterDropPool(camera,vehicle,waypoint,waypointBool):
             else:
                 Show_Velocities_onScreen = True
         """
+        #-------------Altitude Yazdir------------
+        alt_str = "Alt : " + str(vehicle.location.global_relative_frame.alt)
+        cv2.putText(image, alt_str, (470,50), cv2.FONT_HERSHEY_SIMPLEX, 1, (255,0,0), 2,cv2.LINE_AA)
+        #---------------------------------------
+        out.write(image)
         # clear the stream in preparation for the next frame
         rawCapture.truncate(0)
         if waypointBool:
@@ -781,6 +827,7 @@ def FindTarget_WaterDropPool(camera,vehicle,waypoint,waypointBool):
                 print("Target Reached")
                 rawCapture.truncate(0)
                 break
+
 
 # initialize the camera and grab a reference to the raw camera capture
 camera = PiCamera()
@@ -793,12 +840,12 @@ time.sleep(0.1)
 
 # Dronekit
 # Set ground speed
-vehicle.groundspeed = ground_speed
-print (" Ground speed is set to " + str(ground_speed) + " m/s")
+# vehicle.groundspeed = ground_speed
+# print (" Ground speed is set to " + str(ground_speed) + " m/s")
 
 # Set air speed
-vehicle.airspeed = air_speed
-print ("Air speed is set to " + str(air_speed) + " m/s")
+# vehicle.airspeed = air_speed
+# print ("Air speed is set to " + str(air_speed) + " m/s")
 
 # Set rtl altitude
 # vehicle.parameters['RTL_ALT'] = rtl_altitude
@@ -818,36 +865,31 @@ if user_approval == "arm":
     arm_and_takeoff(take_off_altitude)
 
     waypoint_base = vehicle.location.global_frame
-    print("waypoint base has been taken : %s"%waypoint_base)
+    print("waypoint base has been taken : %s" % waypoint_base)
 
     vehicle.simple_goto(waypoint_1)
     print('Vehicle is going to waypoint_1')
-    Mark_GPS_of_Target(camera,vehicle,waypoint_1)
+    Mark_GPS_of_Target(camera, vehicle, waypoint_1)
     while waypoint_distance(waypoint_1) >= 1:
         print('Distance to waypoint bosaltma alani : %s' % waypoint_distance(waypoint_1))
         time.sleep(1)
-    time.sleep(4)
+    time.sleep(2)
     if TargetCompleted:
-        vehicle.simple_goto(Target_Location,groundspeed=1)
+        vehicle.simple_goto(Target_Location)
         while waypoint_distance(Target_Location) >= 1:
             print('Distance to waypoint bosaltma alani : %s' % waypoint_distance(Target_Location))
             time.sleep(1)
-        time.sleep(5)
-        FindTarget_WaterDropPool(camera,vehicle,Target_Location,False)
+        FindTarget_WaterDropPool(camera, vehicle, Target_Location, False)
     else:
         vehicle.simple_goto(waypoint_base)
-        FindTarget_WaterDropPool(camera,vehicle,waypoint_base,True)
+        FindTarget_WaterDropPool(camera, vehicle, waypoint_base, True)
         while waypoint_distance(waypoint_base) >= 1:
             print('Distance to waypoint bosaltma alani : %s' % waypoint_distance(waypoint_base))
             time.sleep(1)
     vehicle.mode = VehicleMode("LAND")
 
-
-    #set_velocity_body(vehicle, Velocity_x, Velocity_y, Velocity_z)
-
-
-
-
+    # set_velocity_body(vehicle, Velocity_x, Velocity_y, Velocity_z)
+out.release()
 
 
 
