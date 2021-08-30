@@ -110,7 +110,7 @@ integralX = 0
 integralY = 0
 derivativeX = 0
 derivativeY = 0
-PID_Velocity_X = 1
+PID_Velocity_X = 0
 PID_Velocity_Y = 0
 
 max_Vel = 1.5
@@ -121,8 +121,8 @@ land_sensivity = 50  # pixel
 connection_address = '/dev/ttyACM0'  # kontrol et
 baud_rate = 115200
 take_off_altitude = 5  # in meter
-ground_speed = 5  # m/s
-air_speed = 5  # m/s
+ground_speed = 3  # m/s
+air_speed = 3  # m/s
 land_speed = 60  # cm/s
 rtl_altitude = 5  # in meter
 
@@ -840,12 +840,12 @@ time.sleep(0.1)
 
 # Dronekit
 # Set ground speed
-# vehicle.groundspeed = ground_speed
-# print (" Ground speed is set to " + str(ground_speed) + " m/s")
+vehicle.groundspeed = ground_speed
+print (" Ground speed is set to " + str(ground_speed) + " m/s")
 
 # Set air speed
-# vehicle.airspeed = air_speed
-# print ("Air speed is set to " + str(air_speed) + " m/s")
+vehicle.airspeed = air_speed
+print ("Air speed is set to " + str(air_speed) + " m/s")
 
 # Set rtl altitude
 # vehicle.parameters['RTL_ALT'] = rtl_altitude
@@ -875,7 +875,7 @@ if user_approval == "arm":
         time.sleep(1)
     time.sleep(2)
     if TargetCompleted:
-        vehicle.simple_goto(Target_Location)
+        vehicle.simple_goto(Target_Location,groundspeed=1)
         while waypoint_distance(Target_Location) >= 1:
             print('Distance to waypoint bosaltma alani : %s' % waypoint_distance(Target_Location))
             time.sleep(1)
